@@ -160,6 +160,114 @@ followed by the `normalize_and_discovery` command above (with `DECA.RD.txt` as t
 designed to match the output GATK DepthOfCoverage command specified in the XHMM protocol, i.e. count fragment depth with 
 no minimum base quality.
 
+# Running DECA
+
+We provide Toil workflows (Vivian et al., 2017) that allow DECA to be run either
+on a local computer or on a cluster on the Amazon Web Services (AWS) cloud.
+These workflows are written in Python and package DECA, Apache Spark, and Apache
+Hadoop using Docker containers. This packaging eliminates the need to understand
+how to setup an Apache Spark cluster, and thus reduces the barrier-to-entry for
+using DECA. To run either workflow, the user will need to [install
+Toil](http://toil.readthedocs.io/en/3.10.1/gettingStarted/install.html#basic-installation).
+To run the AWS workflow, the user will additionally need to follow the AWS setup
+instructions.
+
+## Installing the DECA Workflows
+
+Once Toil has been installed, the user will need to download and install the
+[bdgenomics.workflows](https://github.com/bigdatagenomics/workflows) package,
+which contains the DECA workflows. To install this package, run "make deploy":
+
+```
+git clone https://github.com/bigdatagenomics/workflows
+cd workflows
+make develop
+```
+
+This step should be run inside of a Python virtualenv. If run locally, this step
+should be run inside of the same virtualenv that Toil was installed into. If run
+on AWS, this step should be run inside of a virtualenv that was created on the
+Toil AWS autoscaling cluster.
+
+## Input Files
+
+The DECA workflow takes two inputs:
+
+1. A feature file that defines the regions over which to call copy number
+   variants. This file can be formatted using any of the BED, GTF/GFF2, GFF3,
+   Interval List, or NarrowPeak formats. In the AWS workflow, the ADAM Parquet
+   Feature format is also supported.
+2. A manifest file that contains paths to a set of sorted BAM files. Each file
+   must have a scheme listed. In local mode, the file://, http://, and ftp://
+   schemes are supported. On AWS, the s3a://, http://, and ftp:// schemes are
+   supported. S3a is an overlay over the AWS Simple Storage System (S3) cloud
+   data store which is provided by Apache Hadoop.
+
+## Running Locally
+
+To run locally, we invoke the following command:
+
+```
+bdg-deca \
+  --targets <regions> \
+  --samples <manifest> \
+  --output-dir <path-to-save> \
+  --memory <memory-in-GB> \
+  --run-local \
+  file:<toil-jobstore-path>
+```
+
+This command will run in Toil’s single machine mode, and will save the CNV
+calls to `<path-to-save>/cnvs.gff`. `<toil-jobstore-path>` is the path to a
+temporary directory where Toil will save intermediate files. The
+`<memory-in-GB>` parameter should be specified without units; e.g., to allocate
+20GB of memory, pass "--memory 20".
+
+## Running on AWS
+
+To run on AWS, we rely on Toil’s AWS provisioner, which starts a cluster on the
+AWS cloud. Toil’s AWS provisioner runs on top of [Apache
+Mesos](https://mesos.apache.org) and supports dynamically scaling the number of
+nodes in the cluster to the amount of tasks being run. First, [create a Toil cluster on
+AWS](http://toil.readthedocs.io/en/3.10.1/running/amazon.html).
+
+Once the Toil cluster has launched, SSH onto the cluster, following the
+instructions provided in the Toil/AWS documentation. To install
+bdgenomics.workflows, run:
+
+```
+apt-get update
+apt-get install git
+git clone https://github.com/bigdatagenomics/workflows.git
+cd workflows
+virtualenv --system-site-packages venv
+. venv/bin/activate
+make develop
+```
+
+To run the DECA workflow, invoke the following command:
+
+```
+bdg-deca \
+  --targets <regions> \
+  --samples <manifest> \
+  --output-dir <path-to-save> \
+  --memory <memory-in-GB> \
+  --provisioner aws \
+  --batchSystem mesos \
+  --mesosMaster $(hostname -i):5050 \
+  --nodeType <type> \
+  --num-nodes <spark-workers + 1> \
+  --minNodes <spark-workers + 2> \
+  aws:<region>:<toil-jobstore>
+```
+                                                                                                                               
+Toil will launch a cluster with `spark-workers + 2` worker nodes to run this
+workflow. For optimal performance, we recommend choosing a number of Apache
+Spark worker nodes such that you have no less than 256MB of data per core. As
+described in Section 4.2, all file paths used in AWS mode must be files stored
+in AWS’s S3 storage system, and must have an s3a:// URI scheme.
+                                                                                                                              
 # License
 
 DECA is released under an [Apache 2.0 license](LICENSE.txt).
